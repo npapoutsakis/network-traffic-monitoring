@@ -10,6 +10,7 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 
+#define TIMEOUT 500
 
 // Declaring global counters
 int total_packets = 0;
@@ -452,6 +453,45 @@ void offline_monitor(char *filename){
 /// @brief This function will start capturing traffic from a network interface
 void online_monitor(char *interface){
 
+	if(interface == NULL){
+		printf("Filename is NULL!\n");
+		exit(-1);
+	}
+
+	// check if interface is valid!
+
+
+
+
+
+	// https://www.tcpdump.org/manpages/pcap_open_live.3pcap.html
+	// Just a buf to report the error
+	char errbuf[PCAP_ERRBUF_SIZE];
+	pcap_t *read_packets = NULL;
+
+	read_packets = pcap_open_live(interface, BUFSIZ, 0, 100, errbuf);
+	
+	if(read_packets == NULL){
+		printf("%s\n", errbuf);
+		exit(-1);
+	}
+
+	// Now that we have opened the file, read the packets and parse information
+	// A value of -1 or 0 for cnt is equivalent to infinity, so that packets are processed until another ending condition occurs.
+	int returnVal = pcap_loop(read_packets, 100, &packet_handler, NULL);
+
+	if(returnVal == -1)
+		exit(-1);
+
+	// Close the opened file
+	pcap_close(read_packets);
+	
+	// The statistics function can be placed here! pcap_loop will loop again and again until it reach EOF
+	statistics();
+
+	// Free the list
+	freeList();
+
 	return;
 }
 
@@ -476,7 +516,7 @@ int main(int argc, char *argv[])
     while((ch = getopt(argc, argv, "hr:i:f:")) != -1) {
 	    switch(ch) {		
 		    case 'i':
-
+				online_monitor(optarg);
 			    break;
 		    case 'r': 
 				offline_monitor(optarg);
