@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <pcap.h>
 
 #include <netinet/ether.h>
@@ -46,28 +47,124 @@ struct networkFlow *network = NULL;
 
 /// @brief Print the statistics, aka global counters 
 void statistics(void){
-	printf(" +----------------------------------------------+\n");
-	printf(" |                  Statistics                  |\n");
-	printf(" +----------------------------------------------+\n");
-	printf(" [->] Total network flows captured: %d\n", total_network_flows);
-	printf(" [->] Total TCP network flows captured: %d\n", tcp_network_flows);
-	printf(" [->] Total UDP network flows captured: %d\n", udp_network_flows);
-	printf(" [->] Total packets captured: %d\n", total_packets);
-	printf(" [->] Total TCP packets captured: %d\n", total_tcp_packets);
-	printf(" [->] Total UDP packets captured: %d\n", total_udp_packets);
+	printf(" +------------------------------------------------+\n");
+	printf(" |                  Statistics                    |\n");
+	printf(" +------------------------------------------------+\n");
+	printf(" [->] Total network flows captured: 	   %d\n", total_network_flows);
+	printf(" [->] Total TCP network flows captured:    %d\n", tcp_network_flows);
+	printf(" [->] Total UDP network flows captured:    %d\n", udp_network_flows);
+	printf(" [->] Total packets captured: 		   %d\n", total_packets);
+	printf(" [->] Total TCP packets captured: 	   %d\n", total_tcp_packets);
+	printf(" [->] Total UDP packets captured:          %d\n", total_udp_packets);
 	printf(" [->] Total bytes of TCP packets captured: %d\n", total_bytes_tcp);
 	printf(" [->] Total bytes of UDP packets captured: %d\n", total_bytes_udp);
+	printf("\n");
 	return;
+}
+
+/// @brief Free the network flow list
+void freeList(void){
+	
+	struct networkFlow *current = network;
+
+	while(current != NULL){
+		struct networkFlow *temp = current;
+		current = current->next;
+		free(temp);
+	}	
+	free(current);
+	return;
+}
+
+
+/// @brief Checks if a networkFlow already exists in list -> retransmmited!
+/// @return 1 if exists 0 otherwise
+int checkExistance(char *src_ip, char *dst_ip, int src_port, int dst_port, enum protocol prot_type){
+
+	// If list is empty, the current net doesnt exist!
+	if(network == NULL)
+		return 0;
+	
+	// Create a temp struct to search and compare
+	struct networkFlow *temp = network;
+	
+	while(temp != NULL){
+		
+		if(strcmp(temp->source_ip, src_ip) == 0 && strcmp(temp->destination_ip, dst_ip) == 0 && temp->source_port == src_port 
+			&& temp->destination_port == dst_port && temp->type == prot_type){
+			// The packet is being retransmitted and already exists in list
+			return 1;
+		}
+
+		// Move on!
+		temp = temp->next;	
+	}
+	
+	return 0;
 }
 
 
 /// @brief Creates a new netflow and add it to list
-void createNetflow(struct networkFlow *head, char *src_ip, char *dst_ip, int src_port, int dst_port, enum protocol type){
+void createNetflow(char *src_ip, char *dst_ip, int src_port, int dst_port, enum protocol prot_type, int ip_length){
+	
+	total_network_flows++;
 
+	if(prot_type == TCP){
+		tcp_network_flows++;
+	}
+	else
+		udp_network_flows++;
 
+	if(network == NULL){
+		network = (struct networkFlow *)malloc(sizeof(struct networkFlow));
+		
+		// Declare space for ips
+		network->source_ip = (char *)malloc(ip_length);
+		network->destination_ip = (char *)malloc(ip_length);
+		
+		// Fill the struct variables
+		network->source_ip = src_ip;
+		network->destination_ip = dst_ip;
+
+		network->source_port = src_port;
+		network->destination_port = dst_port;
+
+		network->type = prot_type;
+
+		// Points to NULL
+		network->next = NULL;
+	}
+
+	// If the list is not empty, go to the end of the list and add the new flow
+	struct networkFlow *new = (struct networkFlow *)malloc(sizeof(struct networkFlow));
+
+	// Set a temp pointer to find the end
+	struct networkFlow *temp = network;
+
+	// Traverse
+	while(temp->next != NULL){
+		temp = temp->next;
+	}
+
+	// Set the next to the new struct instead of null
+	temp->next = new;
+
+	// link done! Now fill the variables
+	new->source_ip = (char *)malloc(ip_length);
+	new->destination_ip = (char *)malloc(ip_length);
+
+	new->source_ip = src_ip;
+	new->destination_ip = dst_ip;
+
+	new->source_port = src_port;
+	new->destination_port = dst_port;
+
+	new->type = prot_type;
+	new->next = NULL;
 
 	return;
 }
+
 
 /// @brief Callback function invoked by libpcap for every incoming packet
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_char *pkt_data){
@@ -133,13 +230,17 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 
 					printf(" [->] Protocol: 	 TCP\n");
 					printf(" [->] Header Length:     %d\n", (int)sizeof(struct tcphdr));
-					printf(" [->] Payload:		 %d\n\n", tcp_payload);
+					printf(" [->] Payload:		 %d\n", tcp_payload);
 
 					// Here create a new net flow
-
-					// increase tcp net counter if net doesnt exist
-
-					// if doesnt exists, increase net total counter
+					if(!checkExistance(src_ip, dst_ip, tcp_src_port, tcp_dst_port, TCP)){
+						//create the struct
+						createNetflow(src_ip, dst_ip, tcp_src_port, tcp_dst_port, TCP, INET_ADDRSTRLEN);
+						printf("\n");
+					}
+					else{
+						printf(" [->] TCP Retransmission\n\n");
+					}
 
 					// increase the tcp bytes += payload!
 					total_bytes_tcp += tcp_payload + frame_size; // total payload or all total packet???
@@ -156,7 +257,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					int udp_src_port;
 					int udp_dst_port;
 
-					// Now constuct the tcp_header
+					// Now constuct the udp_header
 					struct udphdr *udp_header = (struct udphdr *)(pkt_data + frame_size);
 
 					udp_src_port= ntohs(udp_header->uh_sport);
@@ -175,6 +276,11 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					printf(" [->] Payload:		 %d\n\n", udp_payload);
 
 					// Here create a new net flow
+					if(!checkExistance(src_ip, dst_ip, udp_src_port, udp_dst_port, UDP)){
+						//create the struct
+						createNetflow(src_ip, dst_ip, udp_src_port, udp_dst_port, UDP, INET_ADDRSTRLEN);
+						printf("\n");
+					}
 
 					total_bytes_udp += udp_payload + frame_size; // total payload or all total packet???
 					total_udp_packets++;
@@ -230,12 +336,17 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 
 					printf(" [->] Protocol: 	 TCP\n");
 					printf(" [->] Header Length:     %d\n", (int)sizeof(struct tcphdr));
-					printf(" [->] Payload:		 %d\n\n", tcp_payload);
+					printf(" [->] Payload:		 %d\n", tcp_payload);
 
 					// Here create a new net flow
-		
-
-
+					if(!checkExistance(src_ip6, dst_ip6, tcp_src_port, tcp_dst_port, TCP)){
+						//create the struct
+						createNetflow(src_ip6, dst_ip6, tcp_src_port, tcp_dst_port, TCP, INET6_ADDRSTRLEN);
+						printf("\n");
+					}
+					else {
+						printf(" [->] TCP Retransmission\n\n");
+					}
 
 					total_bytes_tcp += tcp_payload + frame_size; // total payload or all total packet???
 					total_tcp_packets++;	
@@ -251,7 +362,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					int udp_src_port;
 					int udp_dst_port;
 
-					// Now constuct the tcp_header
+					// Now constuct the udp_header
 					struct udphdr *udp_header = (struct udphdr *)(pkt_data + frame_size);
 
 					udp_src_port= ntohs(udp_header->uh_sport);
@@ -269,8 +380,12 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					printf(" [->] Header Length:     %d\n", (int)sizeof(struct udphdr));
 					printf(" [->] Payload:		 %d\n\n", udp_payload);
 
-
-
+					// Here create a new net flow
+					if(!checkExistance(src_ip6, dst_ip6, udp_src_port, udp_dst_port, UDP)){
+						//create the struct
+						createNetflow(src_ip6, dst_ip6, udp_src_port, udp_dst_port, UDP, INET6_ADDRSTRLEN);
+						printf("\n");
+					}
 
 					total_bytes_udp += udp_payload + frame_size; // total payload or all total packet???
 					total_udp_packets++;
@@ -327,6 +442,9 @@ void offline_monitor(char *filename){
 	// The statistics function can be placed here! pcap_loop will loop again and again until it reach EOF
 	statistics();
 
+	// Free the list
+	freeList();
+
 	return;
 }
 
@@ -358,13 +476,14 @@ int main(int argc, char *argv[])
     while((ch = getopt(argc, argv, "hr:i:f:")) != -1) {
 	    switch(ch) {		
 		    case 'i':
-				
+
 			    break;
 		    case 'r': 
 				offline_monitor(optarg);
     			break;
 			case 'f':
-			
+				if(argc<4)
+					usage();
 				break;
 	    	case 'h':   
 		        usage();
