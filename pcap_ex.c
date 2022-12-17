@@ -5,6 +5,7 @@
 
 #include <netinet/ether.h>
 #include <netinet/ip.h>
+#include <netinet/ip6.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 
@@ -22,7 +23,6 @@ int udp_network_flows = 0;
 int total_bytes_tcp = 0;
 int total_bytes_udp = 0;
 
-
 enum protocol{
 	UDP,
 	TCP
@@ -36,6 +36,8 @@ struct networkFlow {
 	int destination_port;
 
 	enum protocol type;
+
+	struct networkFlow *next;
 };
 
 
@@ -43,23 +45,31 @@ struct networkFlow {
 
 /// @brief Print the statistics, aka global counters 
 void statistics(void){
-	printf("+----------------------------------------------+\n");
-	printf("|                  Statistics                  |\n");
-	printf("+----------------------------------------------+\n");
-	printf("  [+] Total network flows captured: %d\n", total_network_flows);
-	printf("  [+] Total TCP network flows captured: %d\n", tcp_network_flows);
-	printf("  [+] Total UDP network flows captured: %d\n", udp_network_flows);
-	printf("  [+] Total packets captured: %d\n", total_packets);
-	printf("  [+] Total TCP packets captured: %d\n", total_tcp_packets);
-	printf("  [+] Total UDP packets captured: %d\n", total_udp_packets);
-	printf("  [+] Total bytes of TCP packets captured: %d\n", total_bytes_tcp);
-	printf("  [+] Total bytes of UDP packets captured: %d\n", total_bytes_udp);
+	printf(" +----------------------------------------------+\n");
+	printf(" |                  Statistics                  |\n");
+	printf(" +----------------------------------------------+\n");
+	printf(" [->] Total network flows captured: %d\n", total_network_flows);
+	printf(" [->] Total TCP network flows captured: %d\n", tcp_network_flows);
+	printf(" [->] Total UDP network flows captured: %d\n", udp_network_flows);
+	printf(" [->] Total packets captured: %d\n", total_packets);
+	printf(" [->] Total TCP packets captured: %d\n", total_tcp_packets);
+	printf(" [->] Total UDP packets captured: %d\n", total_udp_packets);
+	printf(" [->] Total bytes of TCP packets captured: %d\n", total_bytes_tcp);
+	printf(" [->] Total bytes of UDP packets captured: %d\n", total_bytes_udp);
 	return;
 }
 
 
 
-void extractTCP(const u_char *pkt_data, int size){
+void extractTCP(const u_char *pkt_data, int size, int packet_size){
+
+	// To get info for TCP, create the header
+	
+
+
+
+
+
 
 
 
@@ -67,7 +77,11 @@ void extractTCP(const u_char *pkt_data, int size){
 }
 
 
-void extractUDP(const u_char *pkt_data, int size){
+void extractUDP(const u_char *pkt_data, int size, int packet_size){
+
+
+
+
 
 
 
@@ -78,32 +92,111 @@ void extractUDP(const u_char *pkt_data, int size){
 /// @brief Callback function invoked by libpcap for every incoming packet
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_char *pkt_data){
 
-	// Increase total number of packets
-	total_packets++;
+	/* Simply step by step construct ethernet frame*/
+
+	// Init ethernet structure to get IPV4 or IPV6 version
+	struct ethhdr *eth_header = (struct ethhdr *)(pkt_data);
 	
-	// Here will see what the packet contains
-	// Useful information: https://www.winpcap.org/docs/docs_40_2/html/group__wpcap__tut6.html
-	struct iphdr *ip_header = (struct iphdr *)(pkt_data + sizeof(struct ethhdr));
-	
-	if(ip_header == NULL)	
+	int frame_size = 0;
+
+	if(eth_header == NULL)
 		exit(EXIT_FAILURE);
 
-	// struct ethhdr *eth_header = (struct ethhdr *)(pkt_data);
-	// printf("%d\n", ip_header->protocol);
+	// Got a packet
+	total_packets++;
 
-	switch(ip_header->protocol){
-		//17
-		case IPPROTO_UDP:
-			total_udp_packets++;
-			extractUDP(pkt_data, pkt_header->len);
+	// Check for IPv4 or IPv6
+	switch(ntohs(eth_header->h_proto)){ 
+
+		case ETHERTYPE_IP:	//0x0800 -> IPv4
+			
+			// Init the ip header structure
+			struct iphdr *ip_header = (struct iphdr *)(pkt_data + sizeof(struct ethhdr));
+			
+			// Increase frame size, so that later we can find tcp/udp length
+			frame_size += sizeof(struct iphdr) + sizeof(struct ethhdr);
+
+			// Get the ip header info
+			char src_ip[INET_ADDRSTRLEN];
+			char dst_ip[INET_ADDRSTRLEN];
+				
+			// Convert ip in string format and store
+			inet_ntop(AF_INET, &(ip_header->saddr), src_ip, INET_ADDRSTRLEN);
+			inet_ntop(AF_INET, &(ip_header->daddr), dst_ip, INET_ADDRSTRLEN);
+
+			// Check the protocol TPC/UDP
+			switch(ip_header->protocol){
+				
+				case IPPROTO_TCP:
+					printf("\tPacket Number: %d\n", total_packets);				
+					printf(" [->] IP Version: 	IPv4\n");
+					printf(" [->] Source IP: 	%s\n", src_ip);
+					printf(" [->] Destination IP: 	%s\n", dst_ip);
+					extractTCP(pkt_data, frame_size, pkt_header->len);
+					total_tcp_packets++;
+					break;
+
+				case IPPROTO_UDP:
+					printf("\tPacket Number: %d\n", total_packets);				
+					printf(" [->] IP Version: 	IPv4\n");
+					printf(" [->] Source IP:  	%s\n", src_ip);
+					printf(" [->] Destination IP: 	%s\n", dst_ip);
+					extractUDP(pkt_data, frame_size, pkt_header->len);				
+					total_udp_packets++;
+					break;
+
+				default:
+					//Skip!
+					break;
+			}
+
 			break;
-		//6
-		case IPPROTO_TCP:
-			total_tcp_packets++;
-			extractTCP(pkt_data, pkt_header->len);
+
+		case ETHERTYPE_IPV6:
+
+			struct ip6_hdr *ip6_header = (struct ip6_hdr *)(pkt_data + sizeof(struct ethhdr));
+
+			frame_size += sizeof(struct ip6_hdr) + sizeof(struct ethhdr);
+
+			// Get the ip header info
+			char src_ip6[INET6_ADDRSTRLEN];
+			char dst_ip6[INET6_ADDRSTRLEN];
+				
+			// Convert ip in string format and store
+			inet_ntop(AF_INET6, &(ip6_header->ip6_src), src_ip6, INET6_ADDRSTRLEN);
+			inet_ntop(AF_INET6, &(ip6_header->ip6_dst), dst_ip6, INET6_ADDRSTRLEN);
+
+			// Check the protocol TPC/UDP
+			switch(ip6_header->ip6_nxt){		// Line 45 in ip6.h
+				
+				case IPPROTO_TCP:
+					printf("\tPacket Number: %d\n", total_packets);				
+					printf(" [->] IP Version: 	IPv6\n");
+					printf(" [->] Source IP: 	%s\n", src_ip6);
+					printf(" [->] Destination IP: 	%s\n", dst_ip6);
+					extractTCP(pkt_data, frame_size, pkt_header->len);
+					total_tcp_packets++;	
+					break;
+
+				case IPPROTO_UDP:
+					printf("\tPacket Number: %d\n", total_packets);				
+					printf(" [->] IP Version: 	IPv6\n");
+					printf(" [->] Source IP:  	%s\n", src_ip6);
+					printf(" [->] Destination IP: 	%s\n", dst_ip6);
+					extractUDP(pkt_data, frame_size, pkt_header->len);
+					total_udp_packets++;
+					break;
+
+				default:
+					printf("Not a UDP or TCP packet!\n");
+					//Skip!
+					break;
+			}
+
 			break;
+		
 		default:
-			// Skipped!
+			// Other packet, skip!
 			break;
 	}
 
@@ -175,7 +268,7 @@ int main(int argc, char *argv[])
     while((ch = getopt(argc, argv, "hr:i:f:")) != -1) {
 	    switch(ch) {		
 		    case 'i':
-				online_monitor(optarg);
+				
 			    break;
 		    case 'r': 
 				offline_monitor(optarg);
