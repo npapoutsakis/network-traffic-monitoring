@@ -10,6 +10,7 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 
+#define LOG_FILE "log.txt"
 #define TIMEOUT 500
 
 // Declaring global counters
@@ -24,6 +25,8 @@ int udp_network_flows = 0;
 
 int total_bytes_tcp = 0;
 int total_bytes_udp = 0;
+
+int store_flag = 0;
 
 enum protocol{
 	UDP,
@@ -45,6 +48,51 @@ struct networkFlow {
 // Init the network list, pointer to struct!
 struct networkFlow *network = NULL;
 
+/// @brief Prints all the data of the packet
+void printPacketInfo(int packets, int version, char *src_ip, char *dst_ip, int src_port, int dst_port, enum protocol type, int header_len, int payload){
+
+	if(store_flag == 0){
+
+		printf("\tPacket Number: %d\n", packets);				
+		printf(" [->] IP Version: 	 IPv%d\n", version);
+		printf(" [->] Source IP: 	 %s\n", src_ip);
+		printf(" [->] Destination IP: 	 %s\n", dst_ip);
+
+		printf(" [->] Source Port: 	 %d\n", src_port);
+		printf(" [->] Destination Port:  %d\n", dst_port);	
+
+		if(type == TCP)
+			printf(" [->] Protocol: 	 TCP\n");
+		else
+			printf(" [->] Protocol: 	 UDP\n");
+			
+		printf(" [->] Header Length:     %d\n", header_len);
+		printf(" [->] Payload:		 %d\n", payload);
+	}
+	else {
+
+		FILE *file = fopen(LOG_FILE, "a+");
+		fprintf(file, "\tPacket Number: %d\n", packets);				
+		fprintf(file, " [->] IP Version: 	 IPv%d\n", version);
+		fprintf(file, " [->] Source IP: 	 %s\n", src_ip);
+		fprintf(file, " [->] Destination IP: 	 %s\n", dst_ip);
+
+		fprintf(file, " [->] Source Port: 	 %d\n", src_port);
+		fprintf(file, " [->] Destination Port:  %d\n", dst_port);	
+
+		if(type == TCP)
+			fprintf(file, " [->] Protocol: 	 TCP\n");
+		else
+			fprintf(file, " [->] Protocol: 	 UDP\n");
+			
+		fprintf(file, " [->] Header Length:     %d\n", header_len);
+		fprintf(file, " [->] Payload:		 %d\n", payload);
+
+		fclose(file);
+	}
+
+	return;
+}
 
 /// @brief Print the statistics, aka global counters 
 void statistics(void){
@@ -168,6 +216,7 @@ void createNetflow(char *src_ip, char *dst_ip, int src_port, int dst_port, enum 
 
 
 /// @brief Callback function invoked by libpcap for every incoming packet
+/// @param store_flag 0 to print in console, 1 to write in log.txt
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_char *pkt_data){
 
 	/* Simply step by step construct ethernet frame*/
@@ -206,11 +255,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 			switch(ip_header->protocol){
 				
 				case IPPROTO_TCP:
-					printf("\tPacket Number: %d\n", total_packets);				
-					printf(" [->] IP Version: 	 IPv4\n");
-					printf(" [->] Source IP: 	 %s\n", src_ip);
-					printf(" [->] Destination IP: 	 %s\n", dst_ip);
-					
+
 					// Get the ports
 					int tcp_src_port;
 					int tcp_dst_port;
@@ -221,26 +266,33 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					tcp_src_port= ntohs(tcp_header->th_sport);
 					tcp_dst_port = ntohs(tcp_header->th_dport);
 
-					printf(" [->] Source Port: 	 %d\n", tcp_src_port);
-					printf(" [->] Destination Port:  %d\n", tcp_dst_port);
-
 					// Increase frame size by the data amount to calc payload
 					frame_size += sizeof(struct tcphdr);
 					
 					int tcp_payload = pkt_header->len - frame_size; //data remains
 
-					printf(" [->] Protocol: 	 TCP\n");
-					printf(" [->] Header Length:     %d\n", (int)sizeof(struct tcphdr));
-					printf(" [->] Payload:		 %d\n", tcp_payload);
+					printPacketInfo(total_packets, 4, src_ip, dst_ip, tcp_src_port, tcp_dst_port, TCP, (int)sizeof(struct tcphdr), tcp_payload);
 
 					// Here create a new net flow
 					if(!checkExistance(src_ip, dst_ip, tcp_src_port, tcp_dst_port, TCP)){
 						//create the struct
 						createNetflow(src_ip, dst_ip, tcp_src_port, tcp_dst_port, TCP, INET_ADDRSTRLEN);
-						printf("\n");
+						if(store_flag == 0)
+							printf("\n");
+						else{
+							FILE *file = fopen(LOG_FILE, "a+");
+							fprintf(file, "\n");
+							fclose(file);
+						}
 					}
 					else{
-						printf(" [->] TCP Retransmission\n\n");
+						if(store_flag == 0)
+							printf(" [->] TCP Retransmission\n\n");
+						else{
+							FILE *file = fopen(LOG_FILE, "a+");
+							fprintf(file, " [->] TCP Retransmission\n\n");
+							fclose(file);
+						}
 					}
 
 					// increase the tcp bytes += payload!
@@ -249,10 +301,6 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					break;
 
 				case IPPROTO_UDP:
-					printf("\tPacket Number: %d\n", total_packets);				
-					printf(" [->] IP Version: 	 IPv4\n");
-					printf(" [->] Source IP:  	 %s\n", src_ip);
-					printf(" [->] Destination IP: 	 %s\n", dst_ip);
 
 					// Get the ports
 					int udp_src_port;
@@ -264,23 +312,24 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					udp_src_port= ntohs(udp_header->uh_sport);
 					udp_dst_port = ntohs(udp_header->uh_dport);
 
-					printf(" [->] Source Port: 	 %d\n", udp_src_port);
-					printf(" [->] Destination Port:  %d\n", udp_dst_port);
-
 					// Increase frame size by the data amount to calc payload
 					frame_size += sizeof(struct udphdr);
 					
 					int udp_payload = pkt_header->len - frame_size;
 
-					printf(" [->] Protocol: 	 UDP\n");
-					printf(" [->] Header Length:     %d\n", (int)sizeof(struct udphdr));
-					printf(" [->] Payload:		 %d\n\n", udp_payload);
+					printPacketInfo(total_packets, 4, src_ip, dst_ip, udp_src_port, udp_dst_port, UDP, (int)sizeof(struct udphdr), udp_payload);
 
 					// Here create a new net flow
 					if(!checkExistance(src_ip, dst_ip, udp_src_port, udp_dst_port, UDP)){
 						//create the struct
 						createNetflow(src_ip, dst_ip, udp_src_port, udp_dst_port, UDP, INET_ADDRSTRLEN);
-						printf("\n");
+						if(store_flag == 0)
+							printf("\n");
+						else{
+							FILE *file = fopen(LOG_FILE, "a+");
+							fprintf(file, "\n");
+							fclose(file);
+						}
 					}
 
 					total_bytes_udp += udp_payload + frame_size; // total payload or all total packet???
@@ -312,10 +361,6 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 			switch(ip6_header->ip6_nxt){		// Line 45 in ip6.h
 				
 				case IPPROTO_TCP:
-					printf("\tPacket Number: %d\n", total_packets);				
-					printf(" [->] IP Version: 	IPv6\n");
-					printf(" [->] Source IP: 	%s\n", src_ip6);
-					printf(" [->] Destination IP: 	%s\n", dst_ip6);
 
 					// Get the ports
 					int tcp_src_port;
@@ -327,26 +372,33 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					tcp_src_port= ntohs(tcp_header->th_sport);
 					tcp_dst_port = ntohs(tcp_header->th_dport);
 
-					printf(" [->] Source Port: 	 %d\n", tcp_src_port);
-					printf(" [->] Destination Port:  %d\n", tcp_dst_port);
-
 					// Increase frame size by the data amount to calc payload
 					frame_size += sizeof(struct tcphdr);
 					
 					int tcp_payload = pkt_header->len - frame_size; //data remains
 
-					printf(" [->] Protocol: 	 TCP\n");
-					printf(" [->] Header Length:     %d\n", (int)sizeof(struct tcphdr));
-					printf(" [->] Payload:		 %d\n", tcp_payload);
+					printPacketInfo(total_packets, 6, src_ip6, dst_ip6, tcp_src_port, tcp_dst_port, TCP, (int)sizeof(struct tcphdr), tcp_payload);
 
 					// Here create a new net flow
 					if(!checkExistance(src_ip6, dst_ip6, tcp_src_port, tcp_dst_port, TCP)){
 						//create the struct
 						createNetflow(src_ip6, dst_ip6, tcp_src_port, tcp_dst_port, TCP, INET6_ADDRSTRLEN);
-						printf("\n");
+						if(store_flag == 0)
+							printf("\n");
+						else{
+							FILE *file = fopen(LOG_FILE, "a+");
+							fprintf(file, "\n");
+							fclose(file);
+						}
 					}
 					else {
-						printf(" [->] TCP Retransmission\n\n");
+						if(store_flag == 0)
+							printf(" [->] TCP Retransmission\n\n");
+						else{
+							FILE *file = fopen(LOG_FILE, "a+");
+							fprintf(file, " [->] TCP Retransmission\n\n");
+							fclose(file);
+						}
 					}
 
 					total_bytes_tcp += tcp_payload + frame_size; // total payload or all total packet???
@@ -354,11 +406,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					break;
 
 				case IPPROTO_UDP:
-					printf("\tPacket Number: %d\n", total_packets);				
-					printf(" [->] IP Version: 	 IPv6\n");
-					printf(" [->] Source IP:  	 %s\n", src_ip6);
-					printf(" [->] Destination IP: 	 %s\n", dst_ip6);
-				
+
 					// Get the ports
 					int udp_src_port;
 					int udp_dst_port;
@@ -369,23 +417,24 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					udp_src_port= ntohs(udp_header->uh_sport);
 					udp_dst_port = ntohs(udp_header->uh_dport);
 
-					printf(" [->] Source Port: 	 %d\n", udp_src_port);
-					printf(" [->] Destination Port:  %d\n", udp_dst_port);
-
 					// Increase frame size by the data amount to calc payload
 					frame_size += sizeof(struct udphdr);
 					
 					int udp_payload = pkt_header->len - frame_size;
 
-					printf(" [->] Protocol: 	 UDP\n");
-					printf(" [->] Header Length:     %d\n", (int)sizeof(struct udphdr));
-					printf(" [->] Payload:		 %d\n\n", udp_payload);
+					printPacketInfo(total_packets, 6, src_ip6, dst_ip6, udp_src_port, udp_dst_port, UDP, (int)sizeof(struct udphdr), udp_payload);
 
 					// Here create a new net flow
 					if(!checkExistance(src_ip6, dst_ip6, udp_src_port, udp_dst_port, UDP)){
 						//create the struct
 						createNetflow(src_ip6, dst_ip6, udp_src_port, udp_dst_port, UDP, INET6_ADDRSTRLEN);
-						printf("\n");
+						if(store_flag == 0)
+							printf("\n");
+						else{
+							FILE *file = fopen(LOG_FILE, "a+");
+							fprintf(file, "\n");
+							fclose(file);
+						}
 					}
 
 					total_bytes_udp += udp_payload + frame_size; // total payload or all total packet???
@@ -453,23 +502,37 @@ void offline_monitor(char *filename){
 /// @brief This function will start capturing traffic from a network interface
 void online_monitor(char *interface){
 
+	// Set store flag to 1
+	store_flag = 1;
+
 	if(interface == NULL){
 		printf("Filename is NULL!\n");
 		exit(-1);
 	}
+	char errbuf[PCAP_ERRBUF_SIZE];
 
 	// check if interface is valid!
-
-
-
-
+	pcap_if_t *alldevsp;
+	int existance_flag = 0;
+	if(!pcap_findalldevs(&alldevsp, errbuf)){ 		//enp0s3 in ubuntu/vm
+		pcap_if_t *dev = alldevsp;
+		while(dev != NULL){
+			if(strcmp(interface, dev->name) == 0){
+				existance_flag = 1;
+			}
+			dev = dev->next;
+		}
+		if(!existance_flag){
+			printf("No such interface!\n");
+			exit(-1);
+		}
+	}
 
 	// https://www.tcpdump.org/manpages/pcap_open_live.3pcap.html
 	// Just a buf to report the error
-	char errbuf[PCAP_ERRBUF_SIZE];
 	pcap_t *read_packets = NULL;
 
-	read_packets = pcap_open_live(interface, BUFSIZ, 0, 100, errbuf);
+	read_packets = pcap_open_live(interface, BPF_LEN, 0, TIMEOUT, errbuf);
 	
 	if(read_packets == NULL){
 		printf("%s\n", errbuf);
@@ -478,7 +541,7 @@ void online_monitor(char *interface){
 
 	// Now that we have opened the file, read the packets and parse information
 	// A value of -1 or 0 for cnt is equivalent to infinity, so that packets are processed until another ending condition occurs.
-	int returnVal = pcap_loop(read_packets, 100, &packet_handler, NULL);
+	int returnVal = pcap_loop(read_packets, TIMEOUT, &packet_handler, NULL);
 
 	if(returnVal == -1)
 		exit(-1);
@@ -516,6 +579,7 @@ int main(int argc, char *argv[])
     while((ch = getopt(argc, argv, "hr:i:f:")) != -1) {
 	    switch(ch) {		
 		    case 'i':
+				printf("Listening....\n");
 				online_monitor(optarg);
 			    break;
 		    case 'r': 
