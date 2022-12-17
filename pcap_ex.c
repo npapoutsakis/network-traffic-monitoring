@@ -40,7 +40,8 @@ struct networkFlow {
 	struct networkFlow *next;
 };
 
-
+// Init the network list, pointer to struct!
+struct networkFlow *network = NULL;
 
 
 /// @brief Print the statistics, aka global counters 
@@ -60,34 +61,13 @@ void statistics(void){
 }
 
 
-
-void extractTCP(const u_char *pkt_data, int size, int packet_size){
-
-	// To get info for TCP, create the header
-	
-
-
-
-
-
+/// @brief Creates a new netflow and add it to list
+void createNetflow(struct networkFlow *head, char *src_ip, char *dst_ip, int src_port, int dst_port, enum protocol type){
 
 
 
 	return;
 }
-
-
-void extractUDP(const u_char *pkt_data, int size, int packet_size){
-
-
-
-
-
-
-
-	return;
-}
-
 
 /// @brief Callback function invoked by libpcap for every incoming packet
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_char *pkt_data){
@@ -129,19 +109,74 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 				
 				case IPPROTO_TCP:
 					printf("\tPacket Number: %d\n", total_packets);				
-					printf(" [->] IP Version: 	IPv4\n");
-					printf(" [->] Source IP: 	%s\n", src_ip);
-					printf(" [->] Destination IP: 	%s\n", dst_ip);
-					extractTCP(pkt_data, frame_size, pkt_header->len);
+					printf(" [->] IP Version: 	 IPv4\n");
+					printf(" [->] Source IP: 	 %s\n", src_ip);
+					printf(" [->] Destination IP: 	 %s\n", dst_ip);
+					
+					// Get the ports
+					int tcp_src_port;
+					int tcp_dst_port;
+
+					// Now constuct the tcp_header
+					struct tcphdr *tcp_header = (struct tcphdr *)(pkt_data + frame_size);
+
+					tcp_src_port= ntohs(tcp_header->th_sport);
+					tcp_dst_port = ntohs(tcp_header->th_dport);
+
+					printf(" [->] Source Port: 	 %d\n", tcp_src_port);
+					printf(" [->] Destination Port:  %d\n", tcp_dst_port);
+
+					// Increase frame size by the data amount to calc payload
+					frame_size += sizeof(struct tcphdr);
+					
+					int tcp_payload = pkt_header->len - frame_size; //data remains
+
+					printf(" [->] Protocol: 	 TCP\n");
+					printf(" [->] Header Length:     %d\n", (int)sizeof(struct tcphdr));
+					printf(" [->] Payload:		 %d\n\n", tcp_payload);
+
+					// Here create a new net flow
+
+					// increase tcp net counter if net doesnt exist
+
+					// if doesnt exists, increase net total counter
+
+					// increase the tcp bytes += payload!
+					total_bytes_tcp += tcp_payload + frame_size; // total payload or all total packet???
 					total_tcp_packets++;
 					break;
 
 				case IPPROTO_UDP:
 					printf("\tPacket Number: %d\n", total_packets);				
-					printf(" [->] IP Version: 	IPv4\n");
-					printf(" [->] Source IP:  	%s\n", src_ip);
-					printf(" [->] Destination IP: 	%s\n", dst_ip);
-					extractUDP(pkt_data, frame_size, pkt_header->len);				
+					printf(" [->] IP Version: 	 IPv4\n");
+					printf(" [->] Source IP:  	 %s\n", src_ip);
+					printf(" [->] Destination IP: 	 %s\n", dst_ip);
+
+					// Get the ports
+					int udp_src_port;
+					int udp_dst_port;
+
+					// Now constuct the tcp_header
+					struct udphdr *udp_header = (struct udphdr *)(pkt_data + frame_size);
+
+					udp_src_port= ntohs(udp_header->uh_sport);
+					udp_dst_port = ntohs(udp_header->uh_dport);
+
+					printf(" [->] Source Port: 	 %d\n", udp_src_port);
+					printf(" [->] Destination Port:  %d\n", udp_dst_port);
+
+					// Increase frame size by the data amount to calc payload
+					frame_size += sizeof(struct udphdr);
+					
+					int udp_payload = pkt_header->len - frame_size;
+
+					printf(" [->] Protocol: 	 UDP\n");
+					printf(" [->] Header Length:     %d\n", (int)sizeof(struct udphdr));
+					printf(" [->] Payload:		 %d\n\n", udp_payload);
+
+					// Here create a new net flow
+
+					total_bytes_udp += udp_payload + frame_size; // total payload or all total packet???
 					total_udp_packets++;
 					break;
 
@@ -174,17 +209,72 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					printf(" [->] IP Version: 	IPv6\n");
 					printf(" [->] Source IP: 	%s\n", src_ip6);
 					printf(" [->] Destination IP: 	%s\n", dst_ip6);
-					extractTCP(pkt_data, frame_size, pkt_header->len);
+
+					// Get the ports
+					int tcp_src_port;
+					int tcp_dst_port;
+
+					// Now constuct the tcp_header
+					struct tcphdr *tcp_header = (struct tcphdr *)(pkt_data + frame_size);
+
+					tcp_src_port= ntohs(tcp_header->th_sport);
+					tcp_dst_port = ntohs(tcp_header->th_dport);
+
+					printf(" [->] Source Port: 	 %d\n", tcp_src_port);
+					printf(" [->] Destination Port:  %d\n", tcp_dst_port);
+
+					// Increase frame size by the data amount to calc payload
+					frame_size += sizeof(struct tcphdr);
+					
+					int tcp_payload = pkt_header->len - frame_size; //data remains
+
+					printf(" [->] Protocol: 	 TCP\n");
+					printf(" [->] Header Length:     %d\n", (int)sizeof(struct tcphdr));
+					printf(" [->] Payload:		 %d\n\n", tcp_payload);
+
+					// Here create a new net flow
+		
+
+
+
+					total_bytes_tcp += tcp_payload + frame_size; // total payload or all total packet???
 					total_tcp_packets++;	
 					break;
 
 				case IPPROTO_UDP:
 					printf("\tPacket Number: %d\n", total_packets);				
-					printf(" [->] IP Version: 	IPv6\n");
-					printf(" [->] Source IP:  	%s\n", src_ip6);
-					printf(" [->] Destination IP: 	%s\n", dst_ip6);
-					extractUDP(pkt_data, frame_size, pkt_header->len);
+					printf(" [->] IP Version: 	 IPv6\n");
+					printf(" [->] Source IP:  	 %s\n", src_ip6);
+					printf(" [->] Destination IP: 	 %s\n", dst_ip6);
+				
+					// Get the ports
+					int udp_src_port;
+					int udp_dst_port;
+
+					// Now constuct the tcp_header
+					struct udphdr *udp_header = (struct udphdr *)(pkt_data + frame_size);
+
+					udp_src_port= ntohs(udp_header->uh_sport);
+					udp_dst_port = ntohs(udp_header->uh_dport);
+
+					printf(" [->] Source Port: 	 %d\n", udp_src_port);
+					printf(" [->] Destination Port:  %d\n", udp_dst_port);
+
+					// Increase frame size by the data amount to calc payload
+					frame_size += sizeof(struct udphdr);
+					
+					int udp_payload = pkt_header->len - frame_size;
+
+					printf(" [->] Protocol: 	 UDP\n");
+					printf(" [->] Header Length:     %d\n", (int)sizeof(struct udphdr));
+					printf(" [->] Payload:		 %d\n\n", udp_payload);
+
+
+
+
+					total_bytes_udp += udp_payload + frame_size; // total payload or all total packet???
 					total_udp_packets++;
+					// exit(-1); -> to stop at an IPv6 packet
 					break;
 
 				default:
