@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdbool.h>
 #include <pcap.h>
 
 #include <netinet/ether.h>
@@ -11,7 +12,9 @@
 #include <netinet/udp.h>
 
 #define LOG_FILE "log.txt"
+#define MAX_PACKET_SIZE 65535
 #define TIMEOUT 500
+#define MAX_FILTER_LENGTH 30
 
 // Declaring global counters
 int total_packets = 0;
@@ -26,7 +29,14 @@ int udp_network_flows = 0;
 int total_bytes_tcp = 0;
 int total_bytes_udp = 0;
 
+// If 0 then print in console, 1 to save in file
 int store_flag = 0;
+
+// Filter expression
+char filter_exp[MAX_FILTER_LENGTH]; 
+
+// Flag for filter activation
+int apply_filter = 0;
 
 enum protocol{
 	UDP,
@@ -73,20 +83,20 @@ void printPacketInfo(int packets, int version, char *src_ip, char *dst_ip, int s
 
 		FILE *file = fopen(LOG_FILE, "a+");
 		fprintf(file, "\tPacket Number: %d\n", packets);				
-		fprintf(file, " [->] IP Version: 	 IPv%d\n", version);
-		fprintf(file, " [->] Source IP: 	 %s\n", src_ip);
+		fprintf(file, " [->] IP Version: 	 	 IPv%d\n", version);
+		fprintf(file, " [->] Source IP: 	 	 %s\n", src_ip);
 		fprintf(file, " [->] Destination IP: 	 %s\n", dst_ip);
 
-		fprintf(file, " [->] Source Port: 	 %d\n", src_port);
+		fprintf(file, " [->] Source Port: 	 	 %d\n", src_port);
 		fprintf(file, " [->] Destination Port:  %d\n", dst_port);	
 
 		if(type == TCP)
-			fprintf(file, " [->] Protocol: 	 TCP\n");
+			fprintf(file, " [->] Protocol: 	 	 TCP\n");
 		else
-			fprintf(file, " [->] Protocol: 	 UDP\n");
+			fprintf(file, " [->] Protocol: 	 	 UDP\n");
 			
 		fprintf(file, " [->] Header Length:     %d\n", header_len);
-		fprintf(file, " [->] Payload:		 %d\n", payload);
+		fprintf(file, " [->] Payload:		 	 %d\n", payload);
 
 		fclose(file);
 	}
@@ -110,6 +120,56 @@ void statistics(void){
 	printf("\n");
 	return;
 }
+
+
+void usage(void){
+    printf(
+	       "\n"
+	       "Usage:\n\n"
+		   "Options:\n"
+		   "-i <interface>, Network interface name \n"
+		   "-r <filename>, Packet capture file name\n"
+           "-f <filter>, Filter expression\n"
+		   "-h, Help message\n\n"
+		   "e.g ./pcap_ex -i enp0s3\n"
+		   "e.g ./pcap_ex -i enp0s3 -f 'port 8080' \n"
+		  );
+	
+    exit(-1);
+}
+
+/// @brief Get a substring for a string
+/// @param filter 
+/// @param value 
+/// @return the parsed string
+void parseFilter(char *filter, char *value, int offset){
+	strncpy(value, filter+offset, sizeof(value));
+	return;
+}
+
+
+/// @brief Checks if a string contains a substring
+/// @param str 
+/// @param substr 
+/// @return True if it contains, false otherwise
+bool checkSubstring(char *str, char *substr){
+	bool isPresent = false;
+    for (int i = 0; str[i] != '\0'; i++) {
+        isPresent = false;
+        for (int j = 0; substr[j] != '\0'; j++) {
+            if (str[i + j] != substr[j]) {
+                isPresent = false;
+                break;
+            }
+            isPresent = true;
+        }
+        if (isPresent) {
+            return true;
+        }
+    }
+	return false;
+}
+
 
 /// @brief Free the network flow list
 void freeList(void){
@@ -216,8 +276,67 @@ void createNetflow(char *src_ip, char *dst_ip, int src_port, int dst_port, enum 
 
 
 /// @brief Callback function invoked by libpcap for every incoming packet
-/// @param store_flag 0 to print in console, 1 to write in log.txt
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_char *pkt_data){
+
+	// Variables to check for filter apply
+	int port = -1;
+	int s_port = -1;
+	int d_port = -1;
+	int ip_ver = -1;
+	char *ip = NULL;
+	char *s_ip = NULL;
+	char *d_ip = NULL;
+	char *protocol = NULL;
+	
+	int capture_flag = 0;
+
+	if(apply_filter == 1){
+		// Check each case
+		if(checkSubstring(filter_exp, "src port ") && capture_flag == 0){
+			char *portNum = (char *)malloc(sizeof(strlen(filter_exp) - 9));
+			parseFilter(filter_exp, portNum, 9);
+			s_port = atoi(portNum);
+			capture_flag = 1;
+		}
+
+		if(checkSubstring(filter_exp, "dst port ") && capture_flag == 0){
+			char *portNum = (char *)malloc(sizeof(strlen(filter_exp) - 9));
+			parseFilter(filter_exp, portNum, 9);
+			d_port = atoi(portNum);
+			capture_flag = 1;
+		}
+
+		if(checkSubstring(filter_exp, "port ") && capture_flag == 0){
+			char *portNum = (char *)malloc(sizeof(strlen(filter_exp) - 5));
+			parseFilter(filter_exp, portNum, 5);
+			port = atoi(portNum);
+			capture_flag = 1;
+		}
+
+		if(checkSubstring(filter_exp, "src ip ") && capture_flag == 0){
+			char *ip_addr = (char *)malloc(sizeof((strlen(filter_exp) - 7)));
+			strcpy(ip_addr, filter_exp + 7);
+			// s_ip = (char *)malloc(sizeof((strlen(filter_exp) - 7)));
+			s_ip = ip_addr;
+			// printf("Output: %s\n", s_ip);
+		}
+
+		if(checkSubstring(filter_exp, "dst ip ") && capture_flag == 0){
+			char *ip_daddr = (char *)malloc(sizeof((strlen(filter_exp) - 7)));
+			strcpy(ip_daddr, filter_exp + 7);
+			// s_ip = (char *)malloc(sizeof((strlen(filter_exp) - 7)));
+			d_ip = ip_daddr;
+			printf("Output: %s\n", d_ip);
+		}
+
+		// if(checkSubstring(filter_exp, "ip ") && capture_flag == 0){
+		// 	char *ip = (char *)malloc(sizeof(strlen(filter_exp) - 3));
+		// 	parseFilter(filter_exp, ip, 3);
+		// 	capture_flag = 1;
+		// }
+
+
+	}
 
 	/* Simply step by step construct ethernet frame*/
 
@@ -231,7 +350,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 
 	// Got a packet
 	total_packets++;
-
+	
 	// Check for IPv4 or IPv6
 	switch(ntohs(eth_header->h_proto)){ 
 
@@ -251,6 +370,23 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 			inet_ntop(AF_INET, &(ip_header->saddr), src_ip, INET_ADDRSTRLEN);
 			inet_ntop(AF_INET, &(ip_header->daddr), dst_ip, INET_ADDRSTRLEN);
 
+			if(apply_filter == 1){
+				if(s_ip != NULL){
+					if(strcmp(s_ip, src_ip)!=0){
+						free(s_ip);
+						break;
+					}
+				}
+
+				if(d_ip != NULL){
+					if(strcmp(d_ip, dst_ip)!=0){
+						free(d_ip);
+						break;
+					}
+				}
+			}
+
+
 			// Check the protocol TPC/UDP
 			switch(ip_header->protocol){
 				
@@ -266,6 +402,25 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					tcp_src_port= ntohs(tcp_header->th_sport);
 					tcp_dst_port = ntohs(tcp_header->th_dport);
 
+					if(apply_filter == 1){	
+						if(port != -1){
+							if(tcp_src_port != port && tcp_dst_port != port) {
+								break;
+							}
+						}
+
+						if(s_port != -1){
+							if(tcp_src_port != s_port)
+								break;
+						}
+						
+
+						if(d_port != -1){
+							if(tcp_dst_port != d_port)
+								break;
+						}						
+					}
+					
 					// Increase frame size by the data amount to calc payload
 					frame_size += sizeof(struct tcphdr);
 					
@@ -311,6 +466,23 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 
 					udp_src_port= ntohs(udp_header->uh_sport);
 					udp_dst_port = ntohs(udp_header->uh_dport);
+					
+					if(apply_filter == 1){					
+						if(port != -1){
+							if(udp_src_port != port && udp_dst_port != port)
+								break;
+						}
+						
+						if(s_port != -1){
+							if(udp_src_port != s_port)
+								break;
+						}
+
+						if(d_port != -1){
+							if(udp_dst_port != d_port)
+								break;
+						}	
+					}				
 
 					// Increase frame size by the data amount to calc payload
 					frame_size += sizeof(struct udphdr);
@@ -343,7 +515,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 
 			break;
 
-		case ETHERTYPE_IPV6:
+		case ETHERTYPE_IPV6: //0x860d
 
 			struct ip6_hdr *ip6_header = (struct ip6_hdr *)(pkt_data + sizeof(struct ethhdr));
 
@@ -356,6 +528,22 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 			// Convert ip in string format and store
 			inet_ntop(AF_INET6, &(ip6_header->ip6_src), src_ip6, INET6_ADDRSTRLEN);
 			inet_ntop(AF_INET6, &(ip6_header->ip6_dst), dst_ip6, INET6_ADDRSTRLEN);
+
+			if(apply_filter == 1){
+				if(s_ip != NULL){
+					if(strcmp(s_ip, src_ip6)!=0){
+						free(s_ip);
+						break;
+					}
+				}
+				
+				if(d_ip != NULL){
+					if(strcmp(d_ip, dst_ip6)!=0){
+						free(d_ip);
+						break;
+					}
+				}
+			}	
 
 			// Check the protocol TPC/UDP
 			switch(ip6_header->ip6_nxt){		// Line 45 in ip6.h
@@ -371,6 +559,23 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 
 					tcp_src_port= ntohs(tcp_header->th_sport);
 					tcp_dst_port = ntohs(tcp_header->th_dport);
+
+					if(apply_filter == 1){			
+						if(port != -1){
+							if(tcp_src_port != port && tcp_dst_port != port)
+								break;
+						}
+
+						if(s_port != -1){
+							if(tcp_src_port != s_port)
+								break;
+						}
+
+						if(d_port != -1){
+							if(tcp_dst_port != d_port)
+								break;
+						}
+					}
 
 					// Increase frame size by the data amount to calc payload
 					frame_size += sizeof(struct tcphdr);
@@ -417,6 +622,27 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					udp_src_port= ntohs(udp_header->uh_sport);
 					udp_dst_port = ntohs(udp_header->uh_dport);
 
+					if(apply_filter == 1){
+						
+						if(port != -1){
+							if(udp_src_port != port && udp_dst_port != port) {
+								break;
+							}
+						}
+
+						if(s_port != -1){
+							if(udp_src_port != s_port)
+								break;
+						}
+
+						if(d_port != -1){
+							if(udp_dst_port != d_port)
+								break;
+						}
+
+
+					}
+
 					// Increase frame size by the data amount to calc payload
 					frame_size += sizeof(struct udphdr);
 					
@@ -439,7 +665,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 
 					total_bytes_udp += udp_payload + frame_size; // total payload or all total packet???
 					total_udp_packets++;
-					// exit(-1); -> to stop at an IPv6 packet
+					// exit(-1); -> to stop at IPv6 packet
 					break;
 
 				default:
@@ -524,7 +750,8 @@ void online_monitor(char *interface){
 		}
 		if(!existance_flag){
 			printf("No such interface!\n");
-			exit(-1);
+			usage();
+			// exit(-1);
 		}
 	}
 
@@ -532,12 +759,26 @@ void online_monitor(char *interface){
 	// Just a buf to report the error
 	pcap_t *read_packets = NULL;
 
-	read_packets = pcap_open_live(interface, BPF_LEN, 0, TIMEOUT, errbuf);
+	read_packets = pcap_open_live(interface, MAX_PACKET_SIZE, 1, TIMEOUT, errbuf);
 	
 	if(read_packets == NULL){
 		printf("%s\n", errbuf);
 		exit(-1);
 	}
+	
+	// Just to check
+	// char filter_exp[] = "src host 10.0.2.15";
+	// struct bpf_program fp;
+
+  	// Compile and apply the filter
+  	// if(pcap_compile(read_packets, &fp, filter_exp, 0, PCAP_NETMASK_UNKNOWN) == -1) {
+    // 	fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(read_packets));
+    // 	exit(-1);
+	// }
+  	// if(pcap_setfilter(read_packets, &fp) == -1) {
+    // 	fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(read_packets));
+    // 	exit(-1);
+ 	// }
 
 	// Now that we have opened the file, read the packets and parse information
 	// A value of -1 or 0 for cnt is equivalent to infinity, so that packets are processed until another ending condition occurs.
@@ -548,6 +789,9 @@ void online_monitor(char *interface){
 
 	// Close the opened file
 	pcap_close(read_packets);
+
+	// Free list of devices
+	pcap_freealldevs(alldevsp);
 	
 	// The statistics function can be placed here! pcap_loop will loop again and again until it reach EOF
 	statistics();
@@ -558,36 +802,37 @@ void online_monitor(char *interface){
 	return;
 }
 
-
-void usage(void){
-    printf(
-	       "\n"
-	       "Usage:\n\n"
-		   "Options:\n"
-		   "-i <interface>, Network interface name \n"
-		   "-r <filename>, Packet capture file name\n"
-           "-f <filter>, Filter expression\n"
-		   "-h, Help message\n\n"
-		  );
-	
-    exit(-1);
-}
-
+/// @brief Main func of the program
+/// @param argc 
+/// @param argv 
+/// @return 0 on success
 int main(int argc, char *argv[])
 {
     int ch;
     while((ch = getopt(argc, argv, "hr:i:f:")) != -1) {
 	    switch(ch) {		
 		    case 'i':
-				printf("Listening....\n");
-				online_monitor(optarg);
+				if(argc == 4)
+					usage();
+				else if(argc == 3){
+					printf("Listening....\n\n");
+					online_monitor(optarg);
+					printf("Timeout expired! Look at log.txt\n");
+				}
+				else{
+					printf("Listening....\n");
+					printf("Filter expression: <%s>\n", argv[4]);
+					strcpy(filter_exp, argv[4]);
+					apply_filter = 1;
+					online_monitor(optarg);
+					printf("Timeout expired! Look at log.txt\n");
+				}
 			    break;
 		    case 'r': 
+				apply_filter = 0;
 				offline_monitor(optarg);
     			break;
 			case 'f':
-				if(argc<4)
-					usage();
 				break;
 	    	case 'h':   
 		        usage();
