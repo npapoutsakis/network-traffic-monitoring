@@ -29,7 +29,7 @@ int udp_network_flows = 0;
 int total_bytes_tcp = 0;
 int total_bytes_udp = 0;
 
-// If 0 then print in console, 1 to save in file
+// If 0 print in console, 1 save in file
 int store_flag = 0;
 
 // Filter expression
@@ -131,8 +131,9 @@ void usage(void){
 		   "-r <filename>, Packet capture file name\n"
            "-f <filter>, Filter expression\n"
 		   "-h, Help message\n\n"
-		   "e.g ./pcap_ex -i enp0s3\n"
-		   "e.g ./pcap_ex -i enp0s3 -f 'port 8080' \n"
+		   "e.g ./pcap_ex -r filename\n"
+		   "e.g sudo ./pcap_ex -i enp0s3\n"
+		   "e.g sudo ./pcap_ex -i enp0s3 -f 'port 8080' \n"
 		  );
 	
     exit(-1);
@@ -283,10 +284,10 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 	int s_port = -1;
 	int d_port = -1;
 	int ip_ver = -1;
+	int protocol = -1;
 	char *ip = NULL;
 	char *s_ip = NULL;
 	char *d_ip = NULL;
-	char *protocol = NULL;
 	
 	int capture_flag = 0;
 
@@ -319,6 +320,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 			// s_ip = (char *)malloc(sizeof((strlen(filter_exp) - 7)));
 			s_ip = ip_addr;
 			// printf("Output: %s\n", s_ip);
+			capture_flag = 1;
 		}
 
 		if(checkSubstring(filter_exp, "dst ip ") && capture_flag == 0){
@@ -326,15 +328,54 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 			strcpy(ip_daddr, filter_exp + 7);
 			// s_ip = (char *)malloc(sizeof((strlen(filter_exp) - 7)));
 			d_ip = ip_daddr;
-			printf("Output: %s\n", d_ip);
+			// printf("Output: %s\n", d_ip);
+			capture_flag = 1;
 		}
 
-		// if(checkSubstring(filter_exp, "ip ") && capture_flag == 0){
-		// 	char *ip = (char *)malloc(sizeof(strlen(filter_exp) - 3));
-		// 	parseFilter(filter_exp, ip, 3);
-		// 	capture_flag = 1;
-		// }
+		if(checkSubstring(filter_exp, "ip version ") && capture_flag == 0){
+			char *ip_version = (char *)malloc(sizeof(strlen(filter_exp) - 11));
+			parseFilter(filter_exp, ip_version, 11);
+			ip_ver = atoi(ip_version);
+			if(ip_ver == 4){
+				ip_ver = ETHERTYPE_IP;
+			}
+			else if(ip_ver == 6){
+				ip_ver = ETHERTYPE_IPV6;
+			}
+			else{
+				printf("No such version of IP\n");
+				exit(-1);
+			}
+			// printf("Version is: %d\n", ip_ver);
+			capture_flag = 1;
+		}
 
+		if(checkSubstring(filter_exp, "ip ") && capture_flag == 0){
+			char *ip_addr = (char *)malloc(sizeof((strlen(filter_exp) - 3)));
+			strcpy(ip_addr, filter_exp + 3);
+			// s_ip = (char *)malloc(sizeof((strlen(filter_exp) - 7)));
+			ip = ip_addr;
+			// printf("Output: %s\n", d_ip);
+			capture_flag = 1;
+		}
+
+		if(checkSubstring(filter_exp, "protocol ") && capture_flag == 0){
+			char *prot = (char *)malloc(sizeof((strlen(filter_exp) - 9)));
+			strcpy(prot, filter_exp + 9);
+			// s_ip = (char *)malloc(sizeof((strlen(filter_exp) - 7)));
+			if(strcmp(prot, "TCP") == 0){
+				protocol = IPPROTO_TCP;
+			}
+			else if(strcmp(prot, "UDP") == 0){
+				protocol = IPPROTO_UDP;
+			}
+			else{
+				printf("No such protocol supported!\n");
+				exit(-1);
+			}
+			// printf("Output: %s\n", s_ip);
+			capture_flag = 1;
+		}
 
 	}
 
@@ -355,7 +396,14 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 	switch(ntohs(eth_header->h_proto)){ 
 
 		case ETHERTYPE_IP:	//0x0800 -> IPv4
-			
+
+			if(apply_filter == 1){
+				if(ip_ver != -1){
+					if(ip_ver != ETHERTYPE_IP)
+						break;
+				}
+			}
+
 			// Init the ip header structure
 			struct iphdr *ip_header = (struct iphdr *)(pkt_data + sizeof(struct ethhdr));
 			
@@ -384,6 +432,14 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 						break;
 					}
 				}
+
+				if(ip != NULL){
+					if(strcmp(ip, src_ip) != 0 && strcmp(ip, dst_ip) != 0){
+						free(ip);
+						break;
+					}
+				}
+
 			}
 
 
@@ -391,6 +447,13 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 			switch(ip_header->protocol){
 				
 				case IPPROTO_TCP:
+
+					if(apply_filter == 1){
+						if(protocol != -1){
+							if(protocol != IPPROTO_TCP)
+								break;
+						}
+					}
 
 					// Get the ports
 					int tcp_src_port;
@@ -457,6 +520,13 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 
 				case IPPROTO_UDP:
 
+					if(apply_filter == 1){
+						if(protocol != -1){
+							if(protocol != IPPROTO_UDP)
+								break;
+						}
+					}					
+
 					// Get the ports
 					int udp_src_port;
 					int udp_dst_port;
@@ -517,6 +587,13 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 
 		case ETHERTYPE_IPV6: //0x860d
 
+			if(apply_filter == 1){
+				if(ip_ver != -1){
+					if(ip_ver != ETHERTYPE_IPV6)
+						break;
+				}
+			}
+
 			struct ip6_hdr *ip6_header = (struct ip6_hdr *)(pkt_data + sizeof(struct ethhdr));
 
 			frame_size += sizeof(struct ip6_hdr) + sizeof(struct ethhdr);
@@ -543,12 +620,26 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 						break;
 					}
 				}
+
+				if(ip != NULL){
+					if(strcmp(ip, src_ip6) != 0 && strcmp(ip, dst_ip6) != 0){
+						free(ip);
+						break;
+					}
+				}
 			}	
 
 			// Check the protocol TPC/UDP
 			switch(ip6_header->ip6_nxt){		// Line 45 in ip6.h
 				
 				case IPPROTO_TCP:
+
+					if(apply_filter == 1){
+						if(protocol != -1){
+							if(protocol != IPPROTO_TCP)
+								break;
+						}
+					}	
 
 					// Get the ports
 					int tcp_src_port;
@@ -611,6 +702,13 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header, const u_
 					break;
 
 				case IPPROTO_UDP:
+
+					if(apply_filter == 1){
+						if(protocol != -1){
+							if(protocol != IPPROTO_UDP)
+								break;
+						}
+					}	
 
 					// Get the ports
 					int udp_src_port;
@@ -820,6 +918,7 @@ int main(int argc, char *argv[])
 					printf("Timeout expired! Look at log.txt\n");
 				}
 				else{
+					remove(LOG_FILE);
 					printf("Listening....\n");
 					printf("Filter expression: <%s>\n", argv[4]);
 					strcpy(filter_exp, argv[4]);
