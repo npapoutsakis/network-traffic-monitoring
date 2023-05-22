@@ -1,11 +1,4 @@
 # network-traffic-monitoring
-gcc (Ubuntu 11.3.0-1ubuntu1~22.04) 11.3.0
-
-#            Systems and Security PLH519
-#           
-#         Topic: Network Traffic Monitoring
-#
-#      Author: Nikolaos Papoutsakis 2019030206
 
  
 In this assignment we implemented a network traffic monitoring tool using the Packet 
