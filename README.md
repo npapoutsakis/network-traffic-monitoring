@@ -1,62 +1,95 @@
-# network-traffic-monitoring
 
- 
-In this assignment we implemented a network traffic monitoring tool using the Packet 
-Capture Library in C. For more information about the library we visited the following
-sites: 
-        1. https://linux.die.net/man/3/pcap
-        2. https://www.tcpdump.org
+# Network Traffic Monitoring Tool
 
-We were expected to capture packets from live network and from a .pcap file and extract 
-all information about TCP and UDP packets.
+This project is a network traffic monitoring tool written in C, using the Packet Capture Library (`libpcap`). 
+The tool is designed to capture and analyze network packets, extracting detailed information about TCP and UDP traffic.
 
-For the live capture, online_monitor() is used, sets a store_flag to 1 and calls the
-callback function of pcap_loop() in order to extract the information.
+## Overview
 
-For the file capture, offline_monitor() is used. Using pcap_loop we could easily extract all
-information.
+The tool captures packets from both:
+1. A live network interface (e.g., `eth0`, `enp0s3` for VMs)
+2. A saved `.pcap` file
 
-To successfully get the info, netinet library is used which contains all structs about the 
-ethernet frame.
+Using `libpcap`, the tool processes packet data, identifying details such as source and destination IP addresses, 
+source and destination ports, IP version, and protocol type (TCP or UDP).
 
-The function packet_handler() is called everytime a packet was detected and extracts all info such as:
-    1. IP version
-    2. Source/Destination port
-    3. Source/Destination IP
-    4. Protocol TCP/UDP
+## Libraries
 
-As for the retransmissions, we cannot tell if a UDP packet is retransmitted at the transport layer.
-It's a connectionless protocol so, UDP retransmissions are handled in application layer. On the other
-hand, TCP retransmissions can be found and to do that, we created a simple linked list of TCP network
-flows and check wether the a retransmission occurs.
+- `libpcap`: Required for packet capturing. [Install instructions](https://www.tcpdump.org).
+- `netinet`: Used for data structures representing ethernet frames and IP protocols.
 
-As for the filter mechanism, we couldn't use pcap_compile() and pcap_setfilter() so we added some 
-extra if statement logic to the packet_handler() and got our result.
+## How It Works
 
-To achieve that, checkSubstring() is used to check if a substring contains a specific string and 
-parseFilter() to parse the data available given from user.
+### Live Capture
 
-The filter expressions that can be used are:
-        1. "ip version "
-        2. "port "
-        3. "ip "
-        4. "protocol "
-        5. "src port "
-        6. "dst port "
-        7. "src ip "
-        8. "dst ip "
+- **Function**: `online_monitor()`
+- Sets `store_flag` to `1` and uses `pcap_loop()` to initiate real-time packet capture, triggering a callback function for each packet.
+  
+### File Capture
 
+- **Function**: `offline_monitor()`
+- Uses `pcap_loop()` to read packets from a `.pcap` file and extract packet information.
 
-Makefile
-    Use command 'make' to complile the files
-    Use command 'make clean' to delete all executables
-    **make sure you have installed libpcap-dev in your system**
+### Packet Handling
 
-Examples to execute:
-    For file capture:
-        1. ./pcap_ex -r <filename>
-    
-    For live capture:
-        1. sudo ./pcap_ex -i eth0 (or enp0s3 for vms)
-        2. sudo ./pcap_ex -i eth0 -f "src port 53"
+The `packet_handler()` function is called each time a packet is detected, extracting:
+1. IP Version
+2. Source & Destination IP Addresses
+3. Source & Destination Ports
+4. Protocol Type (TCP/UDP)
 
+### TCP Retransmissions
+
+UDP retransmissions aren't identifiable at the transport layer due to the connectionless nature of UDP (handled at the application layer). For TCP, retransmissions are detected using a linked list of network flows, which checks for retransmissions based on sequence information.
+
+### Filter Mechanism
+
+Instead of using `pcap_compile()` and `pcap_setfilter()`, custom filtering logic was added to `packet_handler()` to support the following filter expressions:
+
+- `"ip version "`
+- `"port "`
+- `"ip "`
+- `"protocol "`
+- `"src port "`
+- `"dst port "`
+- `"src ip "`
+- `"dst ip "`
+
+To achieve this:
+- **`checkSubstring()`**: Verifies if a substring contains a specific filter.
+- **`parseFilter()`**: Parses user-provided filters and applies them to packet data.
+
+## Compilation & Execution
+
+### Compilation
+
+Ensure that `libpcap-dev` is installed on your system. Then, use the following commands:
+
+```bash
+make          # Compiles the source code
+make clean    # Removes the executable files
+```
+
+### Usage Examples
+
+#### File Capture
+
+To capture packets from a `.pcap` file:
+```bash
+./pcap_ex -r <filename>
+```
+
+#### Live Capture
+
+To capture packets from a live network interface:
+```bash
+sudo ./pcap_ex -i eth0
+sudo ./pcap_ex -i eth0 -f "src port 53"
+```
+
+Replace `eth0` with the relevant network interface name (e.g., `enp0s3` on VMs).
+
+## References
+
+- [Libpcap Documentation](https://linux.die.net/man/3/pcap)
+- [TCPDump & Libpcap Homepage](https://www.tcpdump.org)
